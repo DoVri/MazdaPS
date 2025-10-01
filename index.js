@@ -23,16 +23,16 @@ app.use(
 app.set("view engine", "ejs");
 app.set("trust proxy", 1);
 
-// Setting up session middleware
+// Session middleware
 app.use(
   session({
-    secret: "your-secret-key", // ganti pake secret kuat
+    secret: "your-secret-key", // Ganti dengan secret kuat
     resave: false,
     saveUninitialized: true,
   })
 );
 
-// Middleware CORS dan logging
+// Middleware CORS & logging
 app.use(function (req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -49,14 +49,14 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(rateLimiter({ windowMs: 15 * 60 * 1000, max: 100, headers: true }));
 
-// ------------------------- ROUTES -------------------------
+// ---------------- ROUTES ----------------
 
-// ✅ Route Dashboard (GET form login)
+// ✅ Dashboard (tampilkan form login)
 app.get("/player/login/dashboard", (req, res) => {
   res.render(__dirname + "/public/html/dashboard.ejs");
 });
 
-// ✅ Route untuk validasi login
+// ✅ Validasi login
 app.post("/player/growid/login/validate", (req, res) => {
   const { _token, growId, password } = req.body;
 
@@ -67,20 +67,19 @@ app.post("/player/growid/login/validate", (req, res) => {
     });
   }
 
-  // buat token unik
+  // buat token
   const token = Buffer.from(
     `_token=${_token}&growId=${growId}&password=${password}`
   ).toString("base64");
 
-  // simpan session user
+  // simpan ke session
   req.session.user = {
     growId,
     token,
     createdAt: Date.now(),
   };
 
-  // fix accountAge langsung 2 tahun
-  const accountAge = 2;
+  const accountAge = 2; // umur akun fix 2 tahun
 
   res.send({
     status: "success",
@@ -92,7 +91,7 @@ app.post("/player/growid/login/validate", (req, res) => {
   });
 });
 
-// ✅ Route untuk register
+// ✅ Register
 app.post("/player/growid/register", (req, res) => {
   const { growId, password } = req.body;
 
@@ -123,7 +122,7 @@ app.post("/player/growid/register", (req, res) => {
   });
 });
 
-// ✅ Route untuk cek token
+// ✅ Check token (cek session)
 app.get("/player/growid/checkToken", (req, res) => {
   const userSession = req.session.user;
 
@@ -145,27 +144,17 @@ app.get("/player/growid/checkToken", (req, res) => {
   });
 });
 
-// ✅ Route untuk logout
-app.get("/player/logout", (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      return res.status(500).send({ status: "error", message: "Logout failed" });
-    }
-    res.send({ status: "success", message: "Logged out successfully" });
-  });
-});
-
 // ✅ Favicon
 app.get("/favicon.:ext", function (req, res) {
   res.sendFile(path.join(__dirname, "public", "favicon.ico"));
 });
 
-// ✅ Default route
+// ✅ Default
 app.get("/", function (req, res) {
   res.send("Hello World!");
 });
 
-// ------------------------- SERVER -------------------------
+// ---------------- SERVER ----------------
 app.listen(5000, function () {
   console.log("Listening on port 5000");
 });
