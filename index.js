@@ -1,130 +1,62 @@
 const express = require('express');
-const app = express();
 const bodyParser = require('body-parser');
-const rateLimiter = require('express-rate-limit');
-const compression = require('compression');
 const path = require('path');
+const compression = require('compression');
+const crypto = require('crypto');
 
-app.use(
-  compression({
-    level: 5,
-    threshold: 0,
-    filter: (req, res) => {
-      if (req.headers['x-no-compression']) {
-        return false;
-      }
-      return compression.filter(req, res);
-    },
-  }),
-);
+const app = express();
 
-app.set('view engine', 'ejs');
-app.set('trust proxy', 1);
-
-app.use(function (req, res, next) {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept',
-  );
-  console.log(
-    `[${new Date().toLocaleString()}] ${req.method} ${req.url} - ${res.statusCode}`,
-  );
-  next();
-});
-
+// Middleware
+app.use(compression({ level: 5, threshold: 0 }));
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json());
-app.use(rateLimiter({ windowMs: 15 * 60 * 1000, max: 100, headers: true }));
+app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Dashboard login ---
-app.all('/player/login/dashboard', function (req, res) {
-  const tData = {};
-  try {
-    const uData = JSON.stringify(req.body).split('"')[1].split('\\n');
-    const uName = uData[0].split('|');
-    const uPass = uData[1].split('|');
+// View engine
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 
-    for (let i = 0; i < uData.length - 1; i++) {
-      const d = uData[i].split('|');
-      tData[d[0]] = d[1];
-    }
-
-    if (uName[1] && uPass[1]) {
-      return res.redirect('/player/growid/login/validate');
-    }
-  } catch (why) {
-    console.log(`Warning: ${why}`);
-  }
-
-  res.render(__dirname + '/public/html/dashboard.ejs', { data: tData });
+// Render dashboard.ejs
+app.get('/dashboard', (req, res) => {
+    res.render('dashboard');
 });
 
-// --- GrowID Login Validate ---
-app.all('/player/growid/login/validate', (req, res) => {
-  const _token = req.body._token;
-  const growId = req.body.growId;
-  const password = req.body.password;
+// Handle login & register
+app.post('/player/growid/login/validate', (req, res) => {
+    const { growId, password } = req.body;
 
-  const token = Buffer.from(
-    `_token=${_token}&growId=${growId}&password=${password}`,
-  ).toString('base64');
+    // Log input ke console (opsional)
+    console.log(`Incoming login/register request => GrowID: ${growId}, Password: ${password}`);
 
-  res.send({
-    status: 'success',
-    message: 'Account Validated.',
-    token: token,
-    url: '',
-    accountType: 'growtopia',
-    accountAge: 2, // ✅ tambahan
-  });
-});
-
-// --- Check Token ---
-app.all('/player/growid/checkToken', (req, res) => {
-  try {
-    const { refreshToken, clientData } = req.body;
-
-    if (!refreshToken || !clientData) {
-      return res.status(400).send({
-        status: 'error',
-        message: 'Missing refreshToken or clientData',
-      });
+    // Simulasi validasi akun (bisa ganti dengan database)
+    if (!growId || !password) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Missing growId or password',
+        });
     }
 
-    let decodeRefreshToken = Buffer.from(refreshToken, 'base64').toString('utf-8');
+    // Generate token random base64
+    const token = crypto.randomBytes(24).toString('base64');
 
-    const token = Buffer.from(
-      decodeRefreshToken.replace(
-        /(_token=)[^&]*/,
-        `$1${Buffer.from(clientData).toString('base64')}`,
-      ),
-    ).toString('base64');
-
-    res.send({
-      status: 'success',
-      message: 'Token is valid.',
-      token: token,
-      url: '',
-      accountType: 'growtopia',
-      accountAge: 2, // ✅ tambahan
+    // Response JSON sesuai permintaan
+    return res.json({
+        status: 'success',
+        message: 'Account Validated.',
+        token: token,
+        url: '',
+        accountType: 'growtopia',
+        accountAge: 2
     });
-  } catch (error) {
-    res.status(500).send({ status: 'error', message: 'Internal Server Error' });
-  }
 });
 
-// --- Favicon ---
-app.get('/favicon.:ext', function (req, res) {
-  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+// Endpoint penutup modal (dipakai di JS front-end)
+app.get('/player/validate/close', (req, res) => {
+    res.send('Modal closed');
 });
 
-// --- Root ---
-app.get('/', function (req, res) {
-  res.send('Hello World!');
-});
-
-// --- Listen ---
-app.listen(5000, function () {
-  console.log('Listening on port 5000');
+// Jalankan server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`✅ Backend running on http://localhost:${PORT}`);
 });
