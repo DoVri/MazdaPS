@@ -4,36 +4,22 @@ const bodyParser = require('body-parser');
 const rateLimiter = require('express-rate-limit');
 const compression = require('compression');
 const path = require('path');
-const session = require('express-session');
 
-// Middleware
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(
   compression({
     level: 5,
     threshold: 0,
     filter: (req, res) => {
-      if (req.headers['x-no-compression']) return false;
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
       return compression.filter(req, res);
     },
   }),
 );
-
 app.set('view engine', 'ejs');
 app.set('trust proxy', 1);
-
-// Session middleware
-app.use(
-  session({
-    secret: 'gtps-dashboard-secret-key', // ganti di produksi
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-      secure: false, // true kalau pakai HTTPS
-      maxAge: 1000 * 60 * 60 * 24, // 1 hari
-    },
-  }),
-);
-
 app.use(function (req, res, next) {
   res.header('Access-Control-Allow-Origin', '*');
   res.header(
@@ -41,22 +27,23 @@ app.use(function (req, res, next) {
     'Origin, X-Requested-With, Content-Type, Accept',
   );
   console.log(
-    `[${new Date().toLocaleString()}] ${req.method} ${req.url} - ${res.statusCode}`,
+    `[${new Date().toLocaleString()}] ${req.method} ${req.url} - ${
+      res.statusCode
+    }`,
   );
   next();
 });
-
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(rateLimiter({ windowMs: 15 * 60 * 1000, max: 100, headers: true }));
 
-// 📌 Dashboard page handler + auto redirect jika session aktif
-app.all('/player/login/dashboard', function (req, res) {
-  // Jika session user sudah ada, langsung redirect ke validate
-  if (req.session.user && req.session.token) {
-    return res.redirect('/player/growid/login/validate');
-  }
+// Favicon
+app.get('/favicon.:ext', function (req, res) {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+});
 
+// Dashboard login (frontend parsing tidak diubah)
+app.all('/player/login/dashboard', function (req, res) {
   const tData = {};
   try {
     const uData = JSON.stringify(req.body).split('"')[1].split('\\n');
@@ -66,13 +53,8 @@ app.all('/player/login/dashboard', function (req, res) {
       const d = uData[i].split('|');
       tData[d[0]] = d[1];
     }
-
     if (uName[1] && uPass[1]) {
-      req.session.user = {
-        growId: uName[1],
-        password: uPass[1],
-      };
-      return res.redirect('/player/growid/login/validate');
+      res.redirect('/player/growid/login/validate');
     }
   } catch (why) {
     console.log(`Warning: ${why}`);
@@ -81,82 +63,47 @@ app.all('/player/login/dashboard', function (req, res) {
   res.render(__dirname + '/public/html/dashboard.ejs', { data: tData });
 });
 
-// 📌 Login validate (juga dipakai setelah auto redirect)
+// Validasi login → generate token + accountAge: 2
 app.all('/player/growid/login/validate', (req, res) => {
   const _token = req.body._token || '';
-  const growId = req.body.growId || (req.session.user ? req.session.user.growId : '');
-  const password = req.body.password || (req.session.user ? req.session.user.password : '');
-
-  if (growId && password) {
-    req.session.user = { growId, password };
-  }
+  const growId = req.body.growId || '';
+  const password = req.body.password || '';
 
   const token = Buffer.from(
-    `_token=${_token}&growId=${growId}&password=${password}`,
+    `_token=${_token}&growId=${growId}&password=${password}`
   ).toString('base64');
 
-  req.session.token = token;
-
   res.send(
-    JSON.stringify({
-      status: 'success',
-      message: 'Account Validated.',
-      token: token,
-      url: '',
-      accountType: 'growtopia',
-      accountAge: 2,
-    }),
+    `{"status":"success","message":"Account Validated.","token":"${token}","url":"","accountType":"growtopia","accountAge":2}`
   );
 });
 
-// 📌 Check token diperbaiki
-app.all('/player/growid/checkToken', (req, res) => {
-  try {
-    const { refreshToken, clientData } = req.body;
-
-    if (!refreshToken || !clientData) {
-      return res.status(400).send({
-        status: 'error',
-        message: 'Missing refreshToken or clientData',
-      });
-    }
-
+// Check token → validasi dan refresh token + accountAge: 2
+app.all('/player/growid/checktoken', (req, res) => {
+    const { refreshToken } = req.body;
+    try {
     const decoded = Buffer.from(refreshToken, 'base64').toString('utf-8');
-
-    const newTokenString = decoded.replace(
-      /(_token=)[^&]*/,
-      `$1${Buffer.from(clientData).toString('base64')}`,
-    );
-
-    const newToken = Buffer.from(newTokenString).toString('base64');
-
-    req.session.token = newToken;
-
-    res.send({
-      status: 'success',
-      message: 'Token is valid.',
-      token: newToken,
-      url: '',
-      accountType: 'growtopia',
+    if (typeof decoded !== 'string' && !decoded.startsWith('growId=') && !decoded.includes('passwords=')) return res.render(__dirname + '/public/html/dashboard.ejs');
+    res.json({
+        status: 'success',
+        message: 'Account Validated.',
+        token: refreshToken,
+        url: '',
+        accountType: 'growtopia',
+        accountAge: 2
     });
-  } catch (error) {
-    console.error('checkToken error:', error);
-    res.status(500).send({ status: 'error', message: 'Internal Server Error' });
-  }
+    } catch (error) {
+        console.log("Redirecting to player login dashboard");
+        res.render(__dirname + '/public/html/dashboard.ejs');
+    }
 });
 
-// Favicon & default
-app.get('/favicon.:ext', function (req, res) {
-  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
-});
-
+// Root
 app.get('/', function (req, res) {
-  if (req.session.user) {
-    return res.send(`Hello, ${req.session.user.growId}! (Session aktif)`);
-  }
-  res.send('Hello World!');
+  res.send('Welcome to MazdaPS!');
 });
 
+// Start server
 app.listen(5000, function () {
-  console.log('🚀 Listening on port 5000');
+  console.log('Listening on port 5000');
 });
